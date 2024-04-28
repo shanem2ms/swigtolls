@@ -69,6 +69,16 @@ namespace SwigToLLS
 
         string GetLuaType(string t)
         {
+            bool isPointer = false;
+            if (t.Contains("."))
+            {
+                string[]quals = t.Split('.');
+
+                if (quals[0] == "p")
+                    isPointer = true;
+                t = t.Substring(t.LastIndexOf(".") + 1);
+            }
+
             if (t == "int" ||
                 t == "uint16_t" || t == "uint8_t" ||
                 t == "uint64_t" || t == "uint32_t")
@@ -77,9 +87,9 @@ namespace SwigToLLS
                 return "number";
             if (t == "bool")
                 return "boolean";
-            if (t.Contains("."))
+            if (t == "char" && isPointer)
             {
-                t = t.Substring(t.LastIndexOf(".") + 1);
+                return "string";
             }
             if (t.Contains("::"))
             {
