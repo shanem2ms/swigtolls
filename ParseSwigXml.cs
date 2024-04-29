@@ -1,4 +1,6 @@
-﻿using System.Xml;
+﻿using System;
+using System.Diagnostics;
+using System.Xml;
 
 namespace swigxml
 {
@@ -7,7 +9,9 @@ namespace swigxml
         Class,
         Function,
         Namespace,
-        Variable
+        Variable,
+        Typedef,
+        Enum
     }
     public interface LItem
     {
@@ -104,7 +108,10 @@ namespace swigxml
         public List<LVar> Variables { get; set; } = new List<LVar>();
 
         public List<LClass> SubClasses { get; set; } = new List<LClass>();
+        public List<LTypedef> Typedefs { get; set; } = new List<LTypedef>();
+        public List<LEnum> Enums { get; set; } = new List<LEnum>();
 
+        
         void LItem.SortItems()
         {
             Funcs.Sort((a, b) => a.SymName.CompareTo(b.SymName)); 
@@ -112,14 +119,74 @@ namespace swigxml
             Variables.Sort((a, b) => a.SymName.CompareTo(b.SymName));
         }
 
-        public List<LItem> SubItems => SubClasses.Cast<LItem>().Concat(Funcs.Cast<LItem>()).Concat(Variables.Cast<LItem>()).ToList();
+        public List<LItem> SubItems => Typedefs.Cast<LItem>().
+            Concat(SubClasses.Cast<LItem>()).Concat(Funcs.Cast<LItem>()).Concat(Variables.Cast<LItem>()).
+            Concat(Enums.Cast<LItem>()).
+            ToList();
         public virtual ItemType LItemType => ItemType.Class;
 
         public string Description => Name;
         public string FullName => (Parent != null && Parent.SymName != null) ? Parent.FullName + "." + SymName : SymName;
 
     }
+    public class LTypedef : LItem
+    {
+        public LItem Parent { get; set; }
 
+        public string Name { get; set; }
+
+        public string Type { get; set; }
+
+        public bool IsPtr { get; set; }
+        public List<LItem> SubItems => null;
+        public ItemType LItemType => ItemType.Typedef;
+        public string SymName => Name;
+        public string Description
+        {
+            get
+            {
+                return $"{Type} {FullName}";
+            }
+        }
+        public string FullName => (Parent != null && Parent.SymName != null) ? Parent.FullName + "." + SymName : SymName;
+
+        public void SortItems()
+        {
+        }
+    }
+
+    public class LEnum : LItem
+    {
+        public LItem Parent { get; set; }
+
+        public string Name { get; set; }
+
+        public string Type { get; set; }
+        public List<LEnumVal> EnumVals { get; set; } = new List<LEnumVal>();
+
+        public bool IsPtr { get; set; }
+        public List<LItem> SubItems => null;
+        public ItemType LItemType => ItemType.Enum;
+        public string SymName => Name;
+        public string Description
+        {
+            get
+            {
+                return $"{Type} {FullName}";
+            }
+        }
+        public string FullName => (Parent != null && Parent.SymName != null) ? Parent.FullName + "." + SymName : SymName;
+
+        public void SortItems()
+        {
+        }
+    }
+
+    public class LEnumVal
+    {
+        public string Name { get; set; }
+        public int Value { get; set; }
+    }
     public class LNamespace : LClass
     {
         public override ItemType LItemType => ItemType.Namespace;
@@ -142,6 +209,7 @@ namespace swigxml
             SetParents(Root);
             SortItems(Root);
         }
+
 
         void SetParents(LItem item)
         {
@@ -189,7 +257,11 @@ namespace swigxml
                     else if (child is LFunc lfunc)
                         nsclass.Funcs.Add(lfunc);
                     else if (child is LVar lvar)
-                        nsclass.Variables.Add(lvar); 
+                        nsclass.Variables.Add(lvar);
+                    else if (child is LTypedef typedef)
+                        nsclass.Typedefs.Add(typedef);
+                    else if (child is LEnum lenum)
+                        nsclass.Enums.Add(lenum);
                 }
                 else
                 {
@@ -198,12 +270,17 @@ namespace swigxml
                     else if (child is LFunc lfunc)
                         topclass.Funcs.Add(lfunc);
                     else if (child is LVar lvar)
-                        topclass.Variables.Add(lvar); 
+                        topclass.Variables.Add(lvar);
+                    else if (child is LTypedef typedef)
+                        topclass.Typedefs.Add(typedef);
+                    else if (child is LEnum lenum)
+                        topclass.Enums.Add(lenum);
                 }
             }
             topclass.SubClasses.AddRange(namespsace.Select(kv => kv.Value));
             return topclass;
         }
+
 
         void ConsolidateFunctions(LItem item)
         {
@@ -242,7 +319,6 @@ namespace swigxml
             return att?.GetAttribute("value");
         }
 
-
         bool IsPublic(XmlElement node)
         {
             string acc = GetElementProp(node, "access");
@@ -256,11 +332,26 @@ namespace swigxml
                 lclass.Name = GetElementProp(node, "name");
                 lclass.SymName = GetElementProp(node, "sym_name");
                 if (lclass.SymName == null)
-                    lclass.SymName = lclass.Name;
-                foreach (XmlElement child in node.ChildNodes)
-                { RecursiveParse(child, lclass); }
-                curClass.SubClasses.Add(lclass);
-            }
+                {
+                    Console.WriteLine($"No symname for {lclass.Name}");
+                }
+                else
+                {
+                    foreach (XmlElement child in node.ChildNodes)
+                    { RecursiveParse(child, lclass); }
+
+                    if (lclass.Enums.Count == 1 &&
+                        lclass.SubClasses.Count == 0 &&
+                        lclass.Funcs.Count == 0
+                        )
+                    {
+                        lclass.Enums[0].Name = lclass.Name;
+                        curClass.Enums.Add(lclass.Enums[0]);
+                    }
+                    else
+                        curClass.SubClasses.Add(lclass);
+                }
+            }            
             else if (node.Name == "cdecl")
             {
                 string kindprop = GetElementProp(node, "kind");
@@ -272,9 +363,9 @@ namespace swigxml
                     lfunc.SymName = GetElementProp(node, "sym_name");
                     if (lfunc.SymName == null)
                         lfunc.SymName = lfunc.Name;
-
-                    string ismem = GetElementProp(node, "ismember");
-                    lfunc.IsStatic = ismem != "1";
+                    
+                    string view = GetElementProp(node, "view");
+                    lfunc.IsStatic = (view == "staticmemberfunctionHandler");
                     GetFuncParams(node, lfunc);
 
                     curClass.Funcs.Add(lfunc);
@@ -288,6 +379,19 @@ namespace swigxml
 
                     curClass.Variables.Add(lvar);
                 }
+                else if (kindprop == "typedef" &&
+                    IsPublic(node))
+                {
+                    LTypedef ltd = new LTypedef();
+                    ltd.Name = GetElementProp(node, "name");
+                    ltd.Type = GetCppType(GetElementProp(node, "type"));
+                    if (ltd.Type == "SWIGLUA_REF")
+                        ltd.Type = "function";
+                    string decl = GetElementProp(node, "decl");
+                    ltd.IsPtr = decl.StartsWith("p.");
+
+                    curClass.Typedefs.Add(ltd);
+                }
             }
             else if (node.Name == "constructor" &&
                     IsPublic(node))
@@ -298,6 +402,29 @@ namespace swigxml
                 curClass.Funcs.Add(lfunc);
             }
             else if (node.Name == "template") { }
+            else if (node.Name == "enum")
+            {
+                LEnum lenum = new LEnum();
+                lenum.Name = GetElementProp(node, "sym_name");
+                if (lenum.Name != null)
+                {
+                    foreach (XmlElement child in node.ChildNodes)
+                    {
+                        if (child.Name == "enumitem")
+                        {
+                            LEnumVal lEnumVal = new LEnumVal();
+                            lEnumVal.Name = GetElementProp(child, "sym_name");
+                            string exval = GetElementProp(child, "enumvalueex");
+                            if (int.TryParse(exval, out int pval))
+                                lEnumVal.Value = pval;
+                            else
+                                lEnumVal.Value = -1;
+                            lenum.EnumVals.Add(lEnumVal);
+                        }
+                    }
+                    curClass.Enums.Add(lenum);
+                }
+            }
             else
             {
                 foreach (XmlElement child in node.ChildNodes)
@@ -306,7 +433,6 @@ namespace swigxml
                 }
             }
         }
-
 
         public static string GetCppType(string reftype)
         {
@@ -342,7 +468,7 @@ namespace swigxml
                 param1.Name = GetElementProp(param, "name");
                 fp.Params.Add(param1);
             }
-            string returnType = GetCppType(GetElementProp(funcElement, "type"));
+            string returnType = GetElementProp(funcElement, "type");
             fp.ReturnType = returnType != null ? new Param() { Type = returnType } : null;
             func.FuncParams = new List<FuncParams> { fp };
         }
