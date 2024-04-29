@@ -1,6 +1,7 @@
 ﻿using swigxml;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
@@ -19,14 +20,37 @@ namespace SwigToLLS
 
         public void Write(string outfile)
         {
-            lines.Add(@"---");
-            lines.Add(@"---@meta");
+            List<LItem> namespaces = new List<LItem>();
+            GetAllNamespaces(parser.Root, namespaces);
+            foreach (var ns in namespaces)
+            {
+                lines.Clear();
+                lines.Add(@"---");
+                lines.Add(@"---@meta");
 
-            Traverse(parser.Root, "");
-            File.WriteAllLines(outfile, lines);
+                Traverse(ns, "");
+                string outname = ns.Name + ".lua";
+                File.WriteAllLines(outname, lines);
+            }
         }
 
-        void Traverse(LItem c, string parent)
+        void GetAllNamespaces(LItem c, List<LItem> namespaces)
+        {
+            if (c.LItemType == ItemType.Namespace &&
+                c.Name != null)
+            {
+                namespaces.Add(c);
+            }
+            else if (c.SubItems != null)
+            {
+                foreach (var subitem in c.SubItems)
+                {
+                    GetAllNamespaces(subitem, namespaces);
+                }
+            }
+        }
+
+        bool Traverse(LItem c, string parent)
         {
             string fullname = parent;
             if (c.LItemType == ItemType.Namespace &&
@@ -39,7 +63,9 @@ namespace SwigToLLS
             if (c.LItemType == ItemType.Class)
             {
                 if (fullname.Length > 0) fullname += ".";
-                fullname += c.Name;
+                fullname += c.SymName;
+                //if (c.Name == "vector<(double)>")
+                //    Debugger.Break();
                 lines.Add($"---@class {fullname}");
                 lines.Add($"local {fullname} = {{}}");
                 lines.Add("");
@@ -48,15 +74,18 @@ namespace SwigToLLS
             if (c.LItemType == ItemType.Function)
             {
                 WriteFunction(c as LFunc, parent);
-                return;
+                return true;
             }
 
             if (c.SubItems == null)
-                return;
-            
+                return true;
+
+            bool shouldContinue = true;
             foreach (var subitem in c.SubItems)
             {
-                Traverse(subitem, fullname);
+                shouldContinue &= Traverse(subitem, fullname);
+                if (!shouldContinue)
+                    break;
             }
             if (c.LItemType == ItemType.Namespace &&
                 c.Name != null)
@@ -64,6 +93,8 @@ namespace SwigToLLS
                 lines.Add("");
                 lines.Add($"return {c.Name}");
             }
+
+            return shouldContinue;
         }
 
 

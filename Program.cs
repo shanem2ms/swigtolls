@@ -3,6 +3,6 @@
 using SwigToLLS;
 using swigxml;
 
-Parser p = new Parser("swig_bgfx.xml");
+Parser p = new Parser("swig_lua.xml");
 LLSWriter lLSWriter = new LLSWriter(p);
 lLSWriter.Write("glm.lua");
