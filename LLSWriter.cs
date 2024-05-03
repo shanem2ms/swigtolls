@@ -114,7 +114,7 @@ namespace SwigToLLS
                 //if (c.Name == "vector<(double)>")
                 //    Debugger.Break();
                 lines.Add($"---@class {fullname}");
-                lines.Add($"local {fullname} = {{}}");
+                lines.Add($"{c.FullName} = {{}}");
                 lines.Add("");
             }
 
@@ -175,7 +175,7 @@ namespace SwigToLLS
             while (typedefMap.TryGetValue(t, out resolveType))
             {
                 if (resolveType.IsPtr)
-                    t = "userdata";
+                    t = "any";
                 else
                     t = resolveType.Type;
             }
@@ -188,7 +188,7 @@ namespace SwigToLLS
                     return ci.Name;
                 }
                 else
-                    return "userdata";
+                    return "any";
             }
             else
             {
@@ -255,7 +255,7 @@ namespace SwigToLLS
             {
                 if (!CanExpose(p))
                     continue;
-                string funcname = parent;
+                string funcname = f.Parent.FullName;
                 if (parent.Length > 0)
                 {
                     funcname += f.IsStatic ? "." : ":";
